@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Prattlemeter — IB Essay Diagnostic</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    background: linear-gradient(160deg, #080a10 0%, #0f1219 40%, #121620 100%);
+    color: #fff;
+    font-family: 'Instrument Sans', sans-serif;
+    display: flex; justify-content: center;
+    padding: 40px 20px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+</script>
+
+<script type="text/babel">
+const { useState, useRef, useEffect, useCallback } = React;
+
+// ── Gauge ────────────────────────────────────────────────────────
+function Gauge({ label, subtitle, value, analyzing }) {
+  const [displayed, setDisplayed] = useState(0);
+
+  useEffect(() => {
+    if (value === null) { setDisplayed(0); return; }
+    const target = value;
+    const duration = 900;
+    const t0 = performance.now();
+    function tick(now) {
+      const p = Math.min((now - t0) / duration, 1);
+      const eased = 1 - Math.pow(1 - p, 3);
+      setDisplayed(Math.round(eased * target));
+      if (p < 1) requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }, [value]);
+
+  const cx = 90, cy = 90, r = 72;
+  const startAngle = -225, endAngle = 45;
+  const sweep = endAngle - startAngle;
+  const fraction = displayed / 100;
+  const filledAngle = startAngle + sweep * fraction;
+
+  function polarToCart(deg) {
+    const rad = (deg * Math.PI) / 180;
+    return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+  }
+  const bgStart = polarToCart(startAngle);
+  const bgEnd   = polarToCart(endAngle);
+  const fgEnd   = polarToCart(filledAngle);
+
+  function arcPath(sx, sy, ex, ey, large) {
+    return `M ${sx} ${sy} A ${r} ${r} 0 ${large} 1 ${ex} ${ey}`;
+  }
+  const bgPath = arcPath(bgStart.x, bgStart.y, bgEnd.x, bgEnd.y, 1);
+  const fgLarge = (filledAngle - startAngle) > 180 ? 1 : 0;
+  const fgPath = fraction > 0.003
+    ? arcPath(bgStart.x, bgStart.y, fgEnd.x, fgEnd.y, fgLarge)
+    : "";
+
+  function scoreColor(v) {
+    if (v <= 50) {
+      const t = v / 50;
+      return `rgb(${Math.round(34 + t * 183)},${Math.round(197 + t * -37)},${Math.round(94 + t * -54)})`;
+    } else {
+      const t = (v - 50) / 50;
+      return `rgb(${Math.round(217 + t * -10)},${Math.round(160 - t * 130)},${Math.round(40 - t * 20)})`;
+    }
+  }
+  const color = scoreColor(displayed);
+
+  function severity(v) {
+    if (v === null) return "";
+    if (v < 25) return "Low";
+    if (v < 50) return "Moderate";
+    if (v < 75) return "Elevated";
+    return "Severe";
+  }
+
+  return (
+    <div style={{
+      display: "flex", flexDirection: "column", alignItems: "center",
+      background: "rgba(15,18,25,0.65)", borderRadius: 18,
+      border: `1px solid ${value !== null ? color + "33" : "rgba(255,255,255,0.06)"}`,
+      padding: "28px 18px 22px", minWidth: 190,
+      transition: "border-color 0.6s, box-shadow 0.6s",
+      boxShadow: value !== null ? `0 0 32px ${color}15` : "none",
+    }}>
+      <svg width="180" height="130" viewBox="0 0 180 130">
+        <path d={bgPath} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="14" strokeLinecap="round"/>
+        {fgPath && (
+          <path d={fgPath} fill="none" stroke={color} strokeWidth="14" strokeLinecap="round"
+            style={{ filter: `drop-shadow(0 0 8px ${color}66)`, transition: "stroke 0.3s" }}/>
+        )}
+        <text x={cx} y={cy - 6} textAnchor="middle" fill={value !== null ? color : "rgba(255,255,255,0.2)"}
+          style={{ fontSize: 36, fontFamily: "'DM Mono', monospace", fontWeight: 500 }}>
+          {analyzing ? "…" : (value !== null ? displayed : "—")}
+        </text>
+        <text x={cx} y={cy + 16} textAnchor="middle" fill="rgba(255,255,255,0.35)"
+          style={{ fontSize: 11, fontFamily: "'Instrument Sans', sans-serif", letterSpacing: 1 }}>
+          {severity(value !== null ? displayed : null)}
+        </text>
+      </svg>
+      <div style={{ marginTop: 6, textAlign: "center" }}>
+        <div style={{
+          fontSize: 14, fontWeight: 600, color: "rgba(255,255,255,0.88)",
+          letterSpacing: 0.5, textTransform: "uppercase",
+        }}>{label}</div>
+        <div style={{
+          fontSize: 11, color: "rgba(255,255,255,0.35)", marginTop: 4,
+          lineHeight: 1.35, maxWidth: 170,
+        }}>{subtitle}</div>
+      </div>
+    </div>
+  );
+}
+
+// ── App ──────────────────────────────────────────────────────────
+function Prattlemeter() {
+  const [file, setFile] = useState(null);
+  const [scores, setScores] = useState(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [error, setError] = useState(null);
+  const inputRef = useRef();
+
+  const extractText = useCallback(async (arrayBuffer) => {
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    let text = "";
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      text += content.items.map(it => it.str).join(" ") + "\n";
+    }
+    return text.trim();
+  }, []);
+
+  const handleFile = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setFile(f);
+    setScores(null);
+    setError(null);
+    setAnalyzing(true);
+
+    try {
+      const buf = await f.arrayBuffer();
+      const text = await extractText(buf);
+      if (text.length < 40) throw new Error("Couldn't extract enough text from this PDF.");
+
+      const truncated = text.slice(0, 6000);
+
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": localStorage.getItem("prattlemeter_api_key") || "",
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          messages: [{
+            role: "user",
+            content: `You are an IB essay diagnostic tool. Analyse the student essay below on four axes. For each axis, return a score from 0 (none) to 100 (extreme) and a short 1-sentence justification with a brief illustrative quote or reference from the essay.
+
+AXES:
+1. PRATTLE — empty rhetorical padding that says nothing substantive ("Since the dawn of time…", vague truisms, circular restatements).
+2. VERBIAGE — filler words and bloated phrasing that could be cut or tightened without losing meaning (unnecessary adverbs, redundant clauses, throat-clearing).
+3. OBLIQUENESS — failure to address the question directly; tangential material, evasive hedging, answering a different question than was asked.
+4. OVERSTRETCH — references to concepts, theorists, or technical material that the author clearly doesn't understand; name-dropping without substance; misused terminology.
+
+Respond ONLY with a JSON object (no markdown, no backticks):
+{"prattle":{"score":N,"note":"..."},"verbiage":{"score":N,"note":"..."},"obliqueness":{"score":N,"note":"..."},"overstretch":{"score":N,"note":"..."}}
+
+ESSAY:
+${truncated}`
+          }],
+        }),
+      });
+
+      if (!res.ok) {
+        const errBody = await res.text();
+        if (res.status === 401) throw new Error("Invalid API key. Click the key icon to update it.");
+        throw new Error(`API error ${res.status}: ${errBody.slice(0, 200)}`);
+      }
+
+      const data = await res.json();
+      const raw = data.content?.map(b => b.text || "").join("") || "";
+      const cleaned = raw.replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(cleaned);
+      setScores(parsed);
+    } catch (err) {
+      console.error(err);
+      setError(err.message);
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const reset = () => {
+    setFile(null); setScores(null); setError(null); setAnalyzing(false);
+    if (inputRef.current) inputRef.current.value = "";
+  };
+
+  function overallVerdict() {
+    if (!scores) return null;
+    const avg = (scores.prattle.score + scores.verbiage.score + scores.obliqueness.score + scores.overstretch.score) / 4;
+    if (avg < 20) return { text: "Clean writing.", emoji: "✦" };
+    if (avg < 40) return { text: "Some padding — tighten up.", emoji: "◈" };
+    if (avg < 60) return { text: "Significant waffle detected.", emoji: "◉" };
+    return { text: "This essay is mostly hot air.", emoji: "⬥" };
+  }
+  const verdict = overallVerdict();
+
+  // ── API Key management ───────────────────────────────────────
+  const [showKeyModal, setShowKeyModal] = useState(false);
+  const [keyInput, setKeyInput] = useState("");
+  const hasKey = !!localStorage.getItem("prattlemeter_api_key");
+
+  const saveKey = () => {
+    localStorage.setItem("prattlemeter_api_key", keyInput.trim());
+    setShowKeyModal(false);
+    setKeyInput("");
+  };
+
+  return (
+    <div style={{
+      width: "100%", maxWidth: 960,
+      display: "flex", flexDirection: "column", alignItems: "center",
+    }}>
+      {/* Key button */}
+      <div style={{ position: "fixed", top: 16, right: 20, zIndex: 10 }}>
+        <button onClick={() => setShowKeyModal(true)} style={{
+          background: hasKey ? "rgba(34,197,94,0.1)" : "rgba(217,160,40,0.15)",
+          border: `1px solid ${hasKey ? "rgba(34,197,94,0.25)" : "rgba(217,160,40,0.3)"}`,
+          borderRadius: 10, padding: "8px 14px",
+          color: hasKey ? "rgba(34,197,94,0.7)" : "rgba(217,160,40,0.8)",
+          fontSize: 12, fontFamily: "'DM Mono', monospace",
+          cursor: "pointer", display: "flex", alignItems: "center", gap: 6,
+        }}>
+          🔑 {hasKey ? "Key set" : "Set API key"}
+        </button>
+      </div>
+
+      {/* Key modal */}
+      {showKeyModal && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)",
+          display: "flex", alignItems: "center", justifyContent: "center", zIndex: 20,
+        }} onClick={() => setShowKeyModal(false)}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: "#181b24", border: "1px solid rgba(255,255,255,0.1)",
+            borderRadius: 16, padding: "28px 32px", width: 420, maxWidth: "90vw",
+          }}>
+            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Anthropic API Key</div>
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", marginBottom: 18, lineHeight: 1.5 }}>
+              Stored in your browser's localStorage only. Never sent anywhere except api.anthropic.com.
+            </div>
+            <input
+              type="password"
+              placeholder="sk-ant-..."
+              value={keyInput}
+              onChange={e => setKeyInput(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && saveKey()}
+              style={{
+                width: "100%", padding: "10px 14px", borderRadius: 10,
+                background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+                color: "#fff", fontSize: 14, fontFamily: "'DM Mono', monospace",
+                outline: "none",
+              }}
+            />
+            <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "flex-end" }}>
+              <button onClick={() => setShowKeyModal(false)} style={{
+                background: "transparent", border: "1px solid rgba(255,255,255,0.1)",
+                borderRadius: 8, padding: "8px 18px", color: "rgba(255,255,255,0.4)",
+                fontSize: 13, cursor: "pointer", fontFamily: "'Instrument Sans', sans-serif",
+              }}>Cancel</button>
+              <button onClick={saveKey} style={{
+                background: "rgba(168,152,128,0.2)", border: "1px solid rgba(168,152,128,0.3)",
+                borderRadius: 8, padding: "8px 18px", color: "#a89880",
+                fontSize: 13, cursor: "pointer", fontWeight: 600, fontFamily: "'Instrument Sans', sans-serif",
+              }}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
+      <div style={{ textAlign: "center", marginBottom: 40 }}>
+        <h1 style={{
+          fontSize: 42, fontWeight: 700, margin: 0, letterSpacing: -1,
+          background: "linear-gradient(135deg, #e8e0d4 0%, #a89880 100%)",
+          WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
+        }}>PRATTLEMETER</h1>
+        <p style={{
+          color: "rgba(255,255,255,0.3)", fontSize: 13,
+          letterSpacing: 3, textTransform: "uppercase", marginTop: 8,
+        }}>IB Essay Diagnostic</p>
+      </div>
+
+      {/* Upload */}
+      {!file && (
+        <label style={{
+          display: "flex", flexDirection: "column", alignItems: "center",
+          justifyContent: "center",
+          width: 400, maxWidth: "90vw", height: 180,
+          border: "2px dashed rgba(255,255,255,0.12)",
+          borderRadius: 16, cursor: "pointer",
+          transition: "border-color 0.3s, background 0.3s",
+          background: "rgba(255,255,255,0.02)",
+        }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(168,152,128,0.4)"; e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)"; e.currentTarget.style.background = "rgba(255,255,255,0.02)"; }}
+        >
+          <div style={{ fontSize: 32, marginBottom: 10, opacity: 0.4 }}>⬆</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: "rgba(255,255,255,0.55)" }}>Upload Essay PDF</div>
+          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.25)", marginTop: 6 }}>.pdf — text will be extracted and analysed</div>
+          <input ref={inputRef} type="file" accept=".pdf" onChange={handleFile} style={{ display: "none" }}/>
+        </label>
+      )}
+
+      {/* Spinner */}
+      {analyzing && (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16, marginTop: 20 }}>
+          <div style={{
+            width: 36, height: 36, border: "3px solid rgba(168,152,128,0.2)",
+            borderTopColor: "#a89880", borderRadius: "50%",
+            animation: "spin 0.8s linear infinite",
+          }}/>
+          <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, letterSpacing: 1 }}>READING THE WAFFLE…</div>
+        </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div style={{
+          marginTop: 20, padding: "16px 24px", borderRadius: 12,
+          background: "rgba(207,40,40,0.1)", border: "1px solid rgba(207,40,40,0.25)",
+          color: "#cf5050", fontSize: 13, maxWidth: 500, textAlign: "center",
+        }}>{error}</div>
+      )}
+
+      {/* Gauges */}
+      {(scores || analyzing) && (
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+          gap: 20, marginTop: 36, width: "100%",
+        }}>
+          <Gauge label="Prattle" subtitle="Empty rhetorical padding" value={scores?.prattle?.score ?? null} analyzing={analyzing}/>
+          <Gauge label="Verbiage" subtitle="Filler words & bloat" value={scores?.verbiage?.score ?? null} analyzing={analyzing}/>
+          <Gauge label="Obliqueness" subtitle="Dodging the question" value={scores?.obliqueness?.score ?? null} analyzing={analyzing}/>
+          <Gauge label="Overstretch" subtitle="Beyond the author's grasp" value={scores?.overstretch?.score ?? null} analyzing={analyzing}/>
+        </div>
+      )}
+
+      {/* Verdict + Notes */}
+      {scores && (
+        <div style={{ marginTop: 32, width: "100%", animation: "fadeIn 0.6s ease-out" }}>
+          {verdict && (
+            <div style={{
+              textAlign: "center", marginBottom: 28,
+              fontSize: 16, fontWeight: 600, color: "rgba(255,255,255,0.6)", letterSpacing: 0.5,
+            }}>
+              <span style={{ marginRight: 8, opacity: 0.5 }}>{verdict.emoji}</span>{verdict.text}
+            </div>
+          )}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            {["prattle","verbiage","obliqueness","overstretch"].map(key => (
+              <div key={key} style={{
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.06)",
+                borderRadius: 12, padding: "14px 18px",
+              }}>
+                <div style={{
+                  fontSize: 11, fontWeight: 600, textTransform: "uppercase",
+                  letterSpacing: 1, color: "rgba(255,255,255,0.35)", marginBottom: 6,
+                }}>{key}</div>
+                <div style={{
+                  fontSize: 13, color: "rgba(255,255,255,0.55)", lineHeight: 1.5,
+                  fontFamily: "'DM Mono', monospace",
+                }}>{scores[key]?.note}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ textAlign: "center", marginTop: 32 }}>
+            <button onClick={reset} style={{
+              background: "rgba(255,255,255,0.06)",
+              border: "1px solid rgba(255,255,255,0.1)",
+              borderRadius: 10, padding: "10px 28px",
+              color: "rgba(255,255,255,0.5)", fontSize: 13,
+              fontFamily: "'Instrument Sans', sans-serif",
+              cursor: "pointer", fontWeight: 600, letterSpacing: 0.5,
+              transition: "all 0.2s",
+            }}
+              onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,0.1)"; e.currentTarget.style.color = "rgba(255,255,255,0.8)"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "rgba(255,255,255,0.5)"; }}
+            >Analyse Another</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<Prattlemeter/>);
+</script>
+</body>
+</html>
