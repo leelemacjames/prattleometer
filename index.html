@@ -188,8 +188,10 @@ AXES:
 
 Each quote should be a short phrase or clause (max ~15 words) copied exactly from the essay — just enough to identify the offending passage.
 
+ADDITIONALLY: Select the single most problematic paragraph from the essay — the one that best concentrates multiple issues and that the author would most struggle to defend under questioning. Return it verbatim as "hot_seat_paragraph". Also return "flagged_sentences": an array of objects each with "text" (the exact sentence from the paragraph, copied verbatim) and "reason" (a terse label like "prattle", "verbiage", "obliqueness", or "overstretch"). Only flag sentences that are genuinely problematic — not every sentence in the paragraph.
+
 Respond ONLY with a JSON object (no markdown, no backticks):
-{"prattle":{"score":N,"note":"...","quotes":["...","..."]},"verbiage":{"score":N,"note":"...","quotes":["...","..."]},"obliqueness":{"score":N,"note":"...","quotes":["...","..."]},"overstretch":{"score":N,"note":"...","quotes":["...","..."]}}
+{"prattle":{"score":N,"note":"...","quotes":["...","..."]},"verbiage":{"score":N,"note":"...","quotes":["...","..."]},"obliqueness":{"score":N,"note":"...","quotes":["...","..."]},"overstretch":{"score":N,"note":"...","quotes":["...","..."]},"hot_seat_paragraph":"...","flagged_sentences":[{"text":"...","reason":"..."}]}
 
 ESSAY:
 ${truncated}`
@@ -421,6 +423,78 @@ ${truncated}`
               );
             })}
           </div>
+
+          {/* Hot Seat Paragraph */}
+          {scores.hot_seat_paragraph && (
+            <div style={{
+              marginTop: 28, padding: "22px 24px",
+              background: "rgba(255,255,255,0.025)",
+              border: "1px solid rgba(168,152,128,0.15)",
+              borderRadius: 14,
+            }}>
+              <div style={{
+                fontSize: 12, fontWeight: 700, textTransform: "uppercase",
+                letterSpacing: 2, color: "rgba(168,152,128,0.6)", marginBottom: 4,
+              }}>🪑 Hot Seat</div>
+              <div style={{
+                fontSize: 11, color: "rgba(255,255,255,0.3)", marginBottom: 16,
+                fontStyle: "italic",
+              }}>The paragraph you'd most struggle to defend under questioning.</div>
+              <div style={{
+                fontSize: 14, lineHeight: 1.75, color: "rgba(255,255,255,0.6)",
+                fontFamily: "'Instrument Sans', sans-serif",
+              }}>
+                {(() => {
+                  const para = scores.hot_seat_paragraph;
+                  const flags = scores.flagged_sentences || [];
+                  if (!flags.length) return para;
+
+                  const reasonColors = {
+                    prattle: { bg: "rgba(217,160,40,0.15)", border: "rgba(217,160,40,0.4)", label: "#d9a028" },
+                    verbiage: { bg: "rgba(180,130,200,0.15)", border: "rgba(180,130,200,0.4)", label: "#b482c8" },
+                    obliqueness: { bg: "rgba(80,160,220,0.15)", border: "rgba(80,160,220,0.4)", label: "#50a0dc" },
+                    overstretch: { bg: "rgba(207,70,70,0.15)", border: "rgba(207,70,70,0.4)", label: "#cf4646" },
+                  };
+
+                  // Build segments: split paragraph by flagged sentences
+                  let remaining = para;
+                  const segments = [];
+                  // Sort flags by position in paragraph
+                  const sortedFlags = [...flags].sort((a, b) => para.indexOf(a.text) - para.indexOf(b.text));
+
+                  for (const flag of sortedFlags) {
+                    const idx = remaining.indexOf(flag.text);
+                    if (idx === -1) continue;
+                    if (idx > 0) segments.push({ type: "plain", text: remaining.slice(0, idx) });
+                    segments.push({ type: "flagged", text: flag.text, reason: flag.reason?.toLowerCase() });
+                    remaining = remaining.slice(idx + flag.text.length);
+                  }
+                  if (remaining) segments.push({ type: "plain", text: remaining });
+
+                  return segments.map((seg, i) => {
+                    if (seg.type === "plain") return <span key={i}>{seg.text}</span>;
+                    const c = reasonColors[seg.reason] || reasonColors.prattle;
+                    return (
+                      <span key={i} style={{ position: "relative" }}>
+                        <span style={{
+                          background: c.bg,
+                          borderBottom: `2px solid ${c.border}`,
+                          borderRadius: 3,
+                          padding: "1px 2px",
+                        }}>{seg.text}</span>
+                        <span style={{
+                          fontSize: 9, fontWeight: 700, textTransform: "uppercase",
+                          letterSpacing: 0.8, color: c.label,
+                          marginLeft: 4, verticalAlign: "super",
+                        }}>{seg.reason}</span>
+                      </span>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+          )}
+
           <div style={{ textAlign: "center", marginTop: 32 }}>
             <button onClick={reset} style={{
               background: "rgba(255,255,255,0.06)",
