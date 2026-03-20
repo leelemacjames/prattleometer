@@ -169,7 +169,7 @@ function Prattlemeter() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": localStorage.getItem("prattlemeter_api_key") || "",
+          "x-api-key": (localStorage.getItem("prattlemeter_api_key") || "").trim(),
           "anthropic-version": "2023-06-01",
           "anthropic-dangerous-direct-browser-access": "true",
         },
@@ -197,8 +197,7 @@ ${truncated}`
 
       if (!res.ok) {
         const errBody = await res.text();
-        if (res.status === 401) throw new Error("Invalid API key. Click the key icon to update it.");
-        throw new Error(`API error ${res.status}: ${errBody.slice(0, 200)}`);
+        throw new Error(`API ${res.status}: ${errBody.slice(0, 300)}`);
       }
 
       const data = await res.json();
@@ -424,3 +423,4 @@ ReactDOM.createRoot(document.getElementById("root")).render(<Prattlemeter/>);
 </script>
 </body>
 </html>
+
