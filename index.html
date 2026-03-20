@@ -175,10 +175,10 @@ function Prattlemeter() {
         },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
+          max_tokens: 1500,
           messages: [{
             role: "user",
-            content: `You are an IB essay diagnostic tool. Analyse the student essay below on four axes. For each axis, return a score from 0 (none) to 100 (extreme) and a short 1-sentence justification with a brief illustrative quote or reference from the essay.
+            content: `You are an IB essay diagnostic tool. Analyse the student essay below on four axes. For each axis, return a score from 0 (none) to 100 (extreme), a 1-sentence summary, and up to 3 short verbatim quotes from the essay that best illustrate the problem. If a category scores below 15, you may return fewer or zero quotes.
 
 AXES:
 1. PRATTLE — empty rhetorical padding that says nothing substantive ("Since the dawn of time…", vague truisms, circular restatements).
@@ -186,8 +186,10 @@ AXES:
 3. OBLIQUENESS — failure to address the question directly; tangential material, evasive hedging, answering a different question than was asked.
 4. OVERSTRETCH — references to concepts, theorists, or technical material that the author clearly doesn't understand; name-dropping without substance; misused terminology.
 
+Each quote should be a short phrase or clause (max ~15 words) copied exactly from the essay — just enough to identify the offending passage.
+
 Respond ONLY with a JSON object (no markdown, no backticks):
-{"prattle":{"score":N,"note":"..."},"verbiage":{"score":N,"note":"..."},"obliqueness":{"score":N,"note":"..."},"overstretch":{"score":N,"note":"..."}}
+{"prattle":{"score":N,"note":"...","quotes":["...","..."]},"verbiage":{"score":N,"note":"...","quotes":["...","..."]},"obliqueness":{"score":N,"note":"...","quotes":["...","..."]},"overstretch":{"score":N,"note":"...","quotes":["...","..."]}}
 
 ESSAY:
 ${truncated}`
@@ -382,22 +384,42 @@ ${truncated}`
             </div>
           )}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-            {["prattle","verbiage","obliqueness","overstretch"].map(key => (
-              <div key={key} style={{
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(255,255,255,0.06)",
-                borderRadius: 12, padding: "14px 18px",
-              }}>
-                <div style={{
-                  fontSize: 11, fontWeight: 600, textTransform: "uppercase",
-                  letterSpacing: 1, color: "rgba(255,255,255,0.35)", marginBottom: 6,
-                }}>{key}</div>
-                <div style={{
-                  fontSize: 13, color: "rgba(255,255,255,0.55)", lineHeight: 1.5,
-                  fontFamily: "'DM Mono', monospace",
-                }}>{scores[key]?.note}</div>
-              </div>
-            ))}
+            {["prattle","verbiage","obliqueness","overstretch"].map(key => {
+              const d = scores[key];
+              const quotes = d?.quotes || [];
+              return (
+                <div key={key} style={{
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                  borderRadius: 12, padding: "14px 18px",
+                }}>
+                  <div style={{
+                    fontSize: 11, fontWeight: 600, textTransform: "uppercase",
+                    letterSpacing: 1, color: "rgba(255,255,255,0.35)", marginBottom: 6,
+                  }}>{key}</div>
+                  <div style={{
+                    fontSize: 13, color: "rgba(255,255,255,0.55)", lineHeight: 1.5,
+                    fontFamily: "'DM Mono', monospace", marginBottom: quotes.length ? 10 : 0,
+                  }}>{d?.note}</div>
+                  {quotes.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {quotes.map((q, i) => (
+                        <div key={i} style={{
+                          fontSize: 12, lineHeight: 1.45,
+                          color: "rgba(255,255,255,0.4)",
+                          fontFamily: "'DM Mono', monospace",
+                          fontStyle: "italic",
+                          padding: "6px 10px",
+                          background: "rgba(255,255,255,0.025)",
+                          borderLeft: "2px solid rgba(168,152,128,0.3)",
+                          borderRadius: "0 6px 6px 0",
+                        }}>"{q}"</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <div style={{ textAlign: "center", marginTop: 32 }}>
             <button onClick={reset} style={{
