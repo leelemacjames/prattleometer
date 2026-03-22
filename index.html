@@ -137,6 +137,8 @@ function Prattlemeter() {
   const [scores, setScores] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState(null);
+  const [authorAge, setAuthorAge] = useState(16);
+  const [essayTitle, setEssayTitle] = useState("");
   const inputRef = useRef();
 
   const extractText = useCallback(async (arrayBuffer) => {
@@ -178,17 +180,25 @@ function Prattlemeter() {
           max_tokens: 1500,
           messages: [{
             role: "user",
-            content: `You are an IB essay diagnostic tool. Analyse the student essay below on four axes. For each axis, return a score from 0 (none) to 100 (extreme), a 1-sentence summary, and up to 3 short verbatim quotes from the essay that best illustrate the problem. If a category scores below 15, you may return fewer or zero quotes.
+            content: `You are an essay diagnostic tool. Analyse the essay below on four axes, calibrated to the author's age and the essay title/question.
+
+AUTHOR AGE: ${authorAge}
+ESSAY TITLE: ${essayTitle || "(not provided)"}
+
+CALIBRATION RULES:
+- OVERSTRETCH must be judged relative to what is age-appropriate. A 16-year-old referencing Foucault without understanding is overstretch; a 25-year-old doing the same may not be. Technical vocabulary that is standard for the stated age group is NOT overstretch. Only flag material that is clearly beyond what the author can sustain.
+- OBLIQUENESS must be judged against the essay title. If the title demands technical engagement, then technical language is on-topic, not oblique. Score obliqueness based on whether the author is answering the actual question asked.
+- PRATTLE and VERBIAGE are age-independent — padding is padding at any age — but be slightly more lenient with younger writers who may still be developing style.
 
 AXES:
 1. PRATTLE — empty rhetorical padding that says nothing substantive ("Since the dawn of time…", vague truisms, circular restatements).
 2. VERBIAGE — filler words and bloated phrasing that could be cut or tightened without losing meaning (unnecessary adverbs, redundant clauses, throat-clearing).
-3. OBLIQUENESS — failure to address the question directly; tangential material, evasive hedging, answering a different question than was asked.
-4. OVERSTRETCH — references to concepts, theorists, or technical material that the author clearly doesn't understand; name-dropping without substance; misused terminology.
+3. OBLIQUENESS — failure to address the essay title/question directly; tangential material, evasive hedging, answering a different question than was asked.
+4. OVERSTRETCH — references to concepts, theorists, or technical material that the author clearly doesn't understand FOR THEIR AGE; name-dropping without substance; misused terminology.
 
-Each quote should be a short phrase or clause (max ~15 words) copied exactly from the essay — just enough to identify the offending passage.
+For each axis, return a score from 0 (none) to 100 (extreme), a 1-sentence summary, and up to 3 short verbatim quotes (max ~15 words each) from the essay. If a category scores below 15, return fewer or zero quotes.
 
-ADDITIONALLY: Select the single most problematic paragraph from the essay — the one that best concentrates multiple issues and that the author would most struggle to defend under questioning. Return it verbatim as "hot_seat_paragraph". Also return "flagged_sentences": an array of objects each with "text" (the exact sentence from the paragraph, copied verbatim) and "reason" (a terse label like "prattle", "verbiage", "obliqueness", or "overstretch"). Only flag sentences that are genuinely problematic — not every sentence in the paragraph.
+ADDITIONALLY: Select the single most problematic paragraph — the one concentrating the most issues that the author would struggle to defend under questioning. Return it verbatim as "hot_seat_paragraph". Also return "flagged_sentences": an array of objects each with "text" (exact sentence, verbatim) and "reason" (one of: "prattle", "verbiage", "obliqueness", "overstretch"). Only flag genuinely problematic sentences.
 
 Respond ONLY with a JSON object (no markdown, no backticks):
 {"prattle":{"score":N,"note":"...","quotes":["...","..."]},"verbiage":{"score":N,"note":"...","quotes":["...","..."]},"obliqueness":{"score":N,"note":"...","quotes":["...","..."]},"overstretch":{"score":N,"note":"...","quotes":["...","..."]},"hot_seat_paragraph":"...","flagged_sentences":[{"text":"...","reason":"..."}]}
@@ -218,7 +228,7 @@ ${truncated}`
   };
 
   const reset = () => {
-    setFile(null); setScores(null); setError(null); setAnalyzing(false);
+    setFile(null); setScores(null); setError(null); setAnalyzing(false); setEssayTitle("");
     if (inputRef.current) inputRef.current.value = "";
   };
 
@@ -318,25 +328,85 @@ ${truncated}`
         }}>IB Essay Diagnostic</p>
       </div>
 
-      {/* Upload */}
+      {/* Setup panel */}
       {!file && (
-        <label style={{
-          display: "flex", flexDirection: "column", alignItems: "center",
-          justifyContent: "center",
-          width: 400, maxWidth: "90vw", height: 180,
-          border: "2px dashed rgba(255,255,255,0.12)",
-          borderRadius: 16, cursor: "pointer",
-          transition: "border-color 0.3s, background 0.3s",
-          background: "rgba(255,255,255,0.02)",
-        }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(168,152,128,0.4)"; e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)"; e.currentTarget.style.background = "rgba(255,255,255,0.02)"; }}
-        >
-          <div style={{ fontSize: 32, marginBottom: 10, opacity: 0.4 }}>⬆</div>
-          <div style={{ fontSize: 15, fontWeight: 600, color: "rgba(255,255,255,0.55)" }}>Upload Essay PDF</div>
-          <div style={{ fontSize: 12, color: "rgba(255,255,255,0.25)", marginTop: 6 }}>.pdf — text will be extracted and analysed</div>
-          <input ref={inputRef} type="file" accept=".pdf" onChange={handleFile} style={{ display: "none" }}/>
-        </label>
+        <div style={{
+          width: 480, maxWidth: "92vw",
+          display: "flex", flexDirection: "column", gap: 18,
+        }}>
+          {/* Essay title */}
+          <div>
+            <label style={{
+              fontSize: 11, fontWeight: 600, textTransform: "uppercase",
+              letterSpacing: 1.2, color: "rgba(255,255,255,0.35)", marginBottom: 7, display: "block",
+            }}>Essay title / question</label>
+            <input
+              type="text"
+              placeholder="e.g. To what extent does language shape our understanding of reality?"
+              value={essayTitle}
+              onChange={e => setEssayTitle(e.target.value)}
+              style={{
+                width: "100%", padding: "11px 14px", borderRadius: 10,
+                background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+                color: "#fff", fontSize: 14, fontFamily: "'Instrument Sans', sans-serif",
+                outline: "none", transition: "border-color 0.2s",
+              }}
+              onFocus={e => e.currentTarget.style.borderColor = "rgba(168,152,128,0.4)"}
+              onBlur={e => e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"}
+            />
+          </div>
+
+          {/* Age selector */}
+          <div>
+            <label style={{
+              fontSize: 11, fontWeight: 600, textTransform: "uppercase",
+              letterSpacing: 1.2, color: "rgba(255,255,255,0.35)", marginBottom: 7, display: "block",
+            }}>Author's age</label>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <select
+                value={authorAge}
+                onChange={e => setAuthorAge(Number(e.target.value))}
+                style={{
+                  padding: "10px 14px", borderRadius: 10,
+                  background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+                  color: "#fff", fontSize: 14, fontFamily: "'DM Mono', monospace",
+                  outline: "none", cursor: "pointer", appearance: "none",
+                  WebkitAppearance: "none", width: 80, textAlign: "center",
+                }}
+              >
+                {Array.from({ length: 58 }, (_, i) => i + 11).map(age => (
+                  <option key={age} value={age} style={{ background: "#181b24" }}>{age}</option>
+                ))}
+              </select>
+              <span style={{
+                fontSize: 12, color: "rgba(255,255,255,0.3)",
+                fontFamily: "'DM Mono', monospace",
+              }}>
+                {authorAge <= 13 ? "KS3 / MYP" : authorAge <= 16 ? "GCSE / MYP" : authorAge <= 18 ? "IB Diploma / A-Level" : authorAge <= 22 ? "Undergraduate" : authorAge <= 30 ? "Postgraduate" : "Professional / Academic"}
+              </span>
+            </div>
+          </div>
+
+          {/* Upload */}
+          <label style={{
+            display: "flex", flexDirection: "column", alignItems: "center",
+            justifyContent: "center",
+            width: "100%", height: 150,
+            border: "2px dashed rgba(255,255,255,0.12)",
+            borderRadius: 16, cursor: "pointer",
+            transition: "border-color 0.3s, background 0.3s",
+            background: "rgba(255,255,255,0.02)",
+            marginTop: 4,
+          }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(168,152,128,0.4)"; e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)"; e.currentTarget.style.background = "rgba(255,255,255,0.02)"; }}
+          >
+            <div style={{ fontSize: 28, marginBottom: 8, opacity: 0.4 }}>⬆</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "rgba(255,255,255,0.55)" }}>Upload Essay PDF</div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.25)", marginTop: 5 }}>text will be extracted and analysed</div>
+            <input ref={inputRef} type="file" accept=".pdf" onChange={handleFile} style={{ display: "none" }}/>
+          </label>
+        </div>
       )}
 
       {/* Spinner */}
@@ -362,15 +432,37 @@ ${truncated}`
 
       {/* Gauges */}
       {(scores || analyzing) && (
+        <div style={{ width: "100%", marginTop: 36 }}>
+          {/* Context banner */}
+          <div style={{
+            display: "flex", flexWrap: "wrap", gap: "8px 20px",
+            justifyContent: "center", marginBottom: 24,
+          }}>
+            {essayTitle && (
+              <div style={{
+                fontSize: 13, color: "rgba(255,255,255,0.45)",
+                fontFamily: "'DM Mono', monospace", fontStyle: "italic",
+                maxWidth: 600, textAlign: "center",
+              }}>"{essayTitle}"</div>
+            )}
+            <div style={{
+              fontSize: 12, color: "rgba(168,152,128,0.5)",
+              fontFamily: "'DM Mono', monospace",
+              padding: "2px 10px",
+              background: "rgba(168,152,128,0.08)",
+              borderRadius: 6,
+            }}>age {authorAge}</div>
+          </div>
         <div style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-          gap: 20, marginTop: 36, width: "100%",
+          gap: 20, width: "100%",
         }}>
           <Gauge label="Prattle" subtitle="Empty rhetorical padding" value={scores?.prattle?.score ?? null} analyzing={analyzing}/>
           <Gauge label="Verbiage" subtitle="Filler words & bloat" value={scores?.verbiage?.score ?? null} analyzing={analyzing}/>
           <Gauge label="Obliqueness" subtitle="Dodging the question" value={scores?.obliqueness?.score ?? null} analyzing={analyzing}/>
           <Gauge label="Overstretch" subtitle="Beyond the author's grasp" value={scores?.overstretch?.score ?? null} analyzing={analyzing}/>
+        </div>
         </div>
       )}
 
@@ -519,5 +611,6 @@ ReactDOM.createRoot(document.getElementById("root")).render(<Prattlemeter/>);
 </script>
 </body>
 </html>
+
 
 
